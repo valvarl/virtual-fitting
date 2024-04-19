@@ -6,6 +6,7 @@ import tempfile
 
 from PIL import Image
 
+from cloth_mask import ClothMaskProcessor
 from config import Config as cfg
 
 
@@ -15,8 +16,11 @@ class ImageProcessor:
         self.tempdir = tempfile.TemporaryDirectory()
         self.make_structure()
         
+        self.cloth_mask_processor = ClothMaskProcessor()
+        
     def __del__(self):
         os.rmdir(self.tempdir)
+        del self.cloth_mask_processor
     
     def add_pair_image_cloth(self, image: str, cloth: str):
         image_dst = osp.join(self.tempdir, 'queue/image')
@@ -44,6 +48,10 @@ class ImageProcessor:
         os.makedirs(osp.join(self.tempdir, 'process/agnostic-mask'))
         os.makedirs(osp.join(self.tempdir, 'process/cloth'))
         os.makedirs(osp.join(self.tempdir, 'process/cloth_mask'))
+        
+    def _cloth_mask(self, images: list[str], dst):
+        self.cloth_mask_processor(images, dst)
+        
     
     def _denspose(self, images: list[str], dst):
         with tempfile.TemporaryDirectory(dir=self.tempdir) as temp_dir:
