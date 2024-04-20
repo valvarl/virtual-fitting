@@ -24,24 +24,24 @@ class ClothMaskProcessor:
     SEGMENTATION_MASK_SIZE = 640 #param ["640", "320"] {type:"raw", allow-input: true}
     TRIMAP_DILATION = 30 #param {type:"integer"}
     TRIMAP_EROSION = 5 #param {type:"integer"}
-    DEVICE = 'cpu' # 'cuda'
+    DEVICE = 'cuda' # 'cpu'
     
     def __init__(self):
-        self.config = MLConfig(segmentation_network=SEGMENTATION_NETWORK,
-                               preprocessing_method=PREPROCESSING_METHOD,
-                               postprocessing_method=POSTPROCESSING_METHOD,
-                               seg_mask_size=SEGMENTATION_MASK_SIZE,
-                               trimap_dilation=TRIMAP_DILATION,
-                               trimap_erosion=TRIMAP_EROSION,
-                               device=DEVICE)
-        self.interface = init_interface(config)
+        self.config = MLConfig(segmentation_network=self.SEGMENTATION_NETWORK,
+                               preprocessing_method=self.PREPROCESSING_METHOD,
+                               postprocessing_method=self.POSTPROCESSING_METHOD,
+                               seg_mask_size=self.SEGMENTATION_MASK_SIZE,
+                               trimap_dilation=self.TRIMAP_DILATION,
+                               trimap_erosion=self.TRIMAP_EROSION,
+                               device=self.DEVICE)
+        self.interface = init_interface(self.config)
         
     def __call__(self, imgs: list[str], dst):
-        images = interface(imgs)
+        images = self.interface(imgs)
         for i, im in enumerate(images):
             img = np.array(im)
             img = img[...,:3] # no transparency
-            idx = (img[...,0]==0)&(img[...,1]==0)&(img[...,2]==0) # background 0 or 130, just try it
+            idx = (img[...,0]==130)&(img[...,1]==130)&(img[...,2]==130) # background 0 or 130, just try it
             img = np.ones(idx.shape)*255
             img[idx] = 0
             im = Image.fromarray(np.uint8(img), 'L')
