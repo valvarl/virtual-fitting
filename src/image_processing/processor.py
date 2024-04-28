@@ -1,12 +1,17 @@
+import glob
+import json
 import os
 import os.path as osp
 import shutil
 import subprocess
 import tempfile
+import typing as tp
 
+import numpy as np
 from PIL import Image
 
 from .cloth_mask import ClothMaskProcessor
+from .human_agnostic import get_img_agnostic
 from ..config import Config as cfg
 
 
@@ -30,8 +35,9 @@ class ImageProcessor:
         os.makedirs(osp.join(self.tempdir.name, 'process/image'))
         os.makedirs(osp.join(self.tempdir.name, 'process', cfg.openpose_json))
         os.makedirs(osp.join(self.tempdir.name, 'process', cfg.openpose_img))
+        os.makedirs(osp.join(self.tempdir.name, 'process', cfg.human_parse_output))
         os.makedirs(osp.join(self.tempdir.name, 'process', cfg.densepose_output))
-        os.makedirs(osp.join(self.tempdir.name, 'process/agnostic'))
+        os.makedirs(osp.join(self.tempdir.name, 'process/agnostic-v3.2'))
         os.makedirs(osp.join(self.tempdir.name, 'process/agnostic-mask'))
         os.makedirs(osp.join(self.tempdir.name, 'process/cloth'))
         os.makedirs(osp.join(self.tempdir.name, 'process/cloth-mask'))
@@ -51,8 +57,8 @@ class ImageProcessor:
         
     def process(self):
         for image, cloth in self.image_cloth_pairs:
-            shutil.copy(image, osp.join(self.tempdir.name, 'process/image'))
-            shutil.copy(cloth, osp.join(self.tempdir.name, 'process/cloth'))
+            self.resize_image(image, osp.join(self.tempdir.name, 'process/image'))
+            self.resize_image(cloth, osp.join(self.tempdir.name, 'process/cloth'))
         
         images = [img for img, _ in self.image_cloth_pairs]
         cloth = [cloth for _, cloth in self.image_cloth_pairs]
@@ -61,13 +67,19 @@ class ImageProcessor:
                        osp.join(self.tempdir.name, 'process', cfg.openpose_json), 
                        osp.join(self.tempdir.name, 'process', cfg.openpose_img))
         
+        self._human_parse(images, osp.join(self.tempdir.name, 'process', cfg.human_parse_output))
+        
         self._denspose(images, osp.join(self.tempdir.name, 'process', cfg.densepose_output))
         
         self._cloth_mask(cloth, osp.join(self.tempdir.name, 'process/cloth-mask'))
+
+        self._human_agnostic(images, 
+                             osp.join(self.tempdir.name, 'process/agnostic-v3.2'),
+                             osp.join(self.tempdir.name, 'process/agnostic-mask'))
         
         return self.tempdir.name
         
-    def _openpose(self, images: list[str], json_dst: str, render_dst: str):
+    def _openpose(self, images: tp.List[str], json_dst: str, render_dst: str):
         with tempfile.TemporaryDirectory(dir=self.tempdir.name) as temp_dir:
             for image in images:
                 shutil.copy(image, temp_dir)
@@ -84,8 +96,29 @@ class ImageProcessor:
                 command.append('--hand')
 
             subprocess.run(command, cwd=cfg.openpose)
+            
+    def _human_parse(self, images: tp.List[str], dst):
+        shutil.rmtree(osp.join(cfg.human_parse, 'output'), ignore_errors=True)
+        files = glob.glob(osp.join(cfg.human_parse, 'datasets/images/*'))
+        for f in files:
+            os.remove(f)
+         
+        for image in images:
+            shutil.copy(image, osp.join(cfg.human_parse, 'datasets/images'))
+                
+        command = [
+            'python', 
+            'inference_pgn.py'
+        ]
+
+        subprocess.run(command, cwd=cfg.human_parse)
+        
+        output_path = osp.join(cfg.human_parse, 'output/cihp_parsing_maps')
+        for image in os.listdir(output_path):
+            if not image.endswith('vis.png'):
+                shutil.copy(osp.join(output_path, image), dst)
     
-    def _denspose(self, images: list[str], dst):
+    def _denspose(self, images: tp.List[str], dst):
         with tempfile.TemporaryDirectory(dir=self.tempdir.name) as temp_dir:
             input_path = osp.join(temp_dir, 'input')
             output_path = osp.join(temp_dir, 'output')
@@ -106,8 +139,35 @@ class ImageProcessor:
             for image in os.listdir(output_path):
                 shutil.copy(osp.join(output_path, image), dst)
 
-    def _cloth_mask(self, images: list[str], dst):
+    def _cloth_mask(self, images: tp.List[str], dst):
         self.cloth_mask_processor(images, dst)
+        
+    def _human_agnostic(self, images: tp.List[str], agnostic_dst, agnostic_mask_dst):
+        data_path = osp.join(self.tempdir.name, 'process')
+
+        for im_name in [osp.basename(i) for i in images]:
+
+            # load pose image
+            pose_name = im_name.replace('.jpg', '_keypoints.json')
+
+            try:
+                with open(osp.join(data_path, 'openpose_json', pose_name), 'r') as f:
+                    pose_label = json.load(f)
+                    pose_data = pose_label['people'][0]['pose_keypoints_2d']
+                    pose_data = np.array(pose_data)
+                    pose_data = pose_data.reshape((-1, 3))[:, :2]
+            except IndexError:
+                print(pose_name)
+                continue
+
+            # load parsing image
+            im = Image.open(osp.join(data_path, 'image', im_name))
+            label_name = im_name.replace('.jpg', '.png')
+            im_label = Image.open(osp.join(data_path, 'image-parse-v3', label_name))
+
+            agnostic, agnostic_mask = get_img_agnostic(im, im_label, pose_data)
+            agnostic.save(osp.join(agnostic_dst, im_name))
+            agnostic_mask.save(osp.join(agnostic_mask_dst, im_name.replace('.jpg', '_mask.png')))
 
 
     @staticmethod
@@ -146,5 +206,5 @@ class ImageProcessor:
                 left = (width - 768) / 2
                 right = left + 768
                 img = img.crop((left, 0, right, height))
-
-        return img
+        
+        img.save(osp.join(dst, osp.basename(path)))

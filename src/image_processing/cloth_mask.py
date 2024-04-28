@@ -11,6 +11,8 @@
 import os
 import os.path as osp
 from pathlib import Path
+import typing as tp
+
 import numpy as np
 from PIL import Image, ImageOps
 from carvekit.web.schemas.config import MLConfig
@@ -36,7 +38,7 @@ class ClothMaskProcessor:
                                device=self.DEVICE)
         self.interface = init_interface(self.config)
         
-    def __call__(self, imgs: list[str], dst):
+    def __call__(self, imgs: tp.List[str], dst):
         images = self.interface(imgs)
         for i, im in enumerate(images):
             img = np.array(im)

@@ -1,6 +1,3 @@
-import json
-from os import path as osp
-import os
 import numpy as np
 from PIL import Image, ImageDraw
 from tqdm import tqdm
@@ -19,6 +16,9 @@ def get_img_agnostic(img, parse, pose_data):
     
     agnostic = img.copy()
     agnostic_draw = ImageDraw.Draw(agnostic)
+    
+    agnostic_mask = Image.new('L', agnostic.size)
+    agnostic_mask_draw = ImageDraw.Draw(agnostic_mask) 
 
     length_a = np.linalg.norm(pose_data[5] - pose_data[2])
     length_b = np.linalg.norm(pose_data[12] - pose_data[9])
@@ -32,56 +32,41 @@ def get_img_agnostic(img, parse, pose_data):
     for i in [2, 5]:
         pointx, pointy = pose_data[i]
         agnostic_draw.ellipse((pointx-r*5, pointy-r*5, pointx+r*5, pointy+r*5), 'gray', 'gray')
+        agnostic_mask_draw.ellipse((pointx-r*5, pointy-r*5, pointx+r*5, pointy+r*5), 255, 255)
     for i in [3, 4, 6, 7]:
         if (pose_data[i - 1, 0] == 0.0 and pose_data[i - 1, 1] == 0.0) or (pose_data[i, 0] == 0.0 and pose_data[i, 1] == 0.0):
             continue
         agnostic_draw.line([tuple(pose_data[j]) for j in [i - 1, i]], 'gray', width=r*10)
+        agnostic_mask_draw.line([tuple(pose_data[j]) for j in [i - 1, i]], 255, width=r*10)
+        
         pointx, pointy = pose_data[i]
         agnostic_draw.ellipse((pointx-r*5, pointy-r*5, pointx+r*5, pointy+r*5), 'gray', 'gray')
+        agnostic_mask_draw.ellipse((pointx-r*5, pointy-r*5, pointx+r*5, pointy+r*5), 255, 255)
 
     # mask torso
     for i in [9, 12]:
         pointx, pointy = pose_data[i]
         agnostic_draw.ellipse((pointx-r*3, pointy-r*6, pointx+r*3, pointy+r*6), 'gray', 'gray')
+        agnostic_mask_draw.ellipse((pointx-r*3, pointy-r*6, pointx+r*3, pointy+r*6), 255, 255)
+    
     agnostic_draw.line([tuple(pose_data[i]) for i in [2, 9]], 'gray', width=r*6)
     agnostic_draw.line([tuple(pose_data[i]) for i in [5, 12]], 'gray', width=r*6)
     agnostic_draw.line([tuple(pose_data[i]) for i in [9, 12]], 'gray', width=r*12)
     agnostic_draw.polygon([tuple(pose_data[i]) for i in [2, 5, 12, 9]], 'gray', 'gray')
+    
+    agnostic_mask_draw.line([tuple(pose_data[i]) for i in [2, 9]], 255, width=r*6)    
+    agnostic_mask_draw.line([tuple(pose_data[i]) for i in [5, 12]], 255, width=r*6)    
+    agnostic_mask_draw.line([tuple(pose_data[i]) for i in [9, 12]], 255, width=r*12)
+    agnostic_mask_draw.polygon([tuple(pose_data[i]) for i in [2, 5, 12, 9]], 255, 255)
 
     # mask neck
     pointx, pointy = pose_data[1]
     agnostic_draw.rectangle((pointx-r*7, pointy-r*7, pointx+r*7, pointy+r*7), 'gray', 'gray')
     agnostic.paste(img, None, Image.fromarray(np.uint8(parse_head * 255), 'L'))
     agnostic.paste(img, None, Image.fromarray(np.uint8(parse_lower * 255), 'L'))
-
-    return agnostic
-
-if __name__ =="__main__":
-    data_path = './test'
-    output_path = './test/parse'
     
-    os.makedirs(output_path, exist_ok=True)
-    
-    for im_name in tqdm(os.listdir(osp.join(data_path, 'image'))):
-        
-        # load pose image
-        pose_name = im_name.replace('.jpg', '_keypoints.json')
-        
-        try:
-            with open(osp.join(data_path, 'openpose_json', pose_name), 'r') as f:
-                pose_label = json.load(f)
-                pose_data = pose_label['people'][0]['pose_keypoints_2d']
-                pose_data = np.array(pose_data)
-                pose_data = pose_data.reshape((-1, 3))[:, :2]
-        except IndexError:
-            print(pose_name)
-            continue
+    agnostic_mask_draw.rectangle((pointx-r*7, pointy-r*7, pointx+r*7, pointy+r*7), 255, 255)
+    agnostic_mask_draw.bitmap((0, 0), Image.fromarray(np.uint8(parse_lower * 255)), fill=0)
+    agnostic_mask_draw.bitmap((0, 0), Image.fromarray(np.uint8(parse_head * 255)), fill=0)
 
-        # load parsing image
-        im = Image.open(osp.join(data_path, 'image', im_name))
-        label_name = im_name.replace('.jpg', '.png')
-        im_label = Image.open(osp.join(data_path, 'image-parse-v3', label_name))
-
-        agnostic = get_img_agnostic(im, im_label, pose_data)
-        
-        agnostic.save(osp.join(output_path, im_name))
+    return agnostic, agnostic_mask
