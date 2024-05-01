@@ -16,7 +16,7 @@ TIMEOUT_KEEP_ALIVE = 5  # seconds.
 app = FastAPI()
 engine = None
 
-@app.post("/upload_pair")
+@app.post("/preproc_pair")
 async def create_upload_files(
     request: Request, 
     file1: UploadFile = File(...), 
